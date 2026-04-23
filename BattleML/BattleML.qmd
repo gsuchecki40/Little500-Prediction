@@ -1,5 +1,0 @@
----
-title: "BattleML: A Machine Learning Framework for Battle Data Analysis"
-format: html
----
-
