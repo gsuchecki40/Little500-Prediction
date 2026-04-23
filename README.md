@@ -1,179 +1,192 @@
-# Napoleon Battle Analytics
+# Little 500 2026 — Race Prediction Model
 
-> Clustering 660 battles across 400 years of warfare to quantify military genius — Napoleon, Wellington, Frederick the Great, and more.
+XGBoost ensemble model predicting finish order and top-5 probability for the 2026 men's and women's Little 500 at Indiana University.
 
-## Live Dashboard
-
-**[Live Dashboard](https://gsuchecki40.github.io/Napoleon-Battle-Analytics/)**
-
-Interactive dashboard with animated general comparisons, cluster breakdowns, and Monte Carlo head-to-head matchups. Worth clicking.
+**Races:** Women's — April 24 | Men's — April 25  
+**Track:** Bill Armstrong Stadium, Bloomington, IN  
+**Format:** 33-team field, relay-style — 200 laps (men) / 100 laps (women)
 
 ---
 
-## Overview
+## Motivation
 
-This project applies unsupervised machine learning to the CDB90 military battle database — 660 land battles fought between 1600 and 1973. The goal was to identify structural archetypes in how battles are fought and use those archetypes to compare historical commanders across eras.
+The Little 500 is one of the best amateur sporting events in the country, and one of the harder ones to model. There's no lap telemetry, no mid-race tracking, and publicly available finish data gets sparse fast once you go back more than a few seasons. For most of the 33-team field, the historical record is essentially blank.
 
-The core question: was Napoleon's greatness about genius, or about preparation?
-
-The data suggests it was mostly preparation. He fought outnumbered in only 12% of his battles — the lowest of any general analyzed. He engineered favorable conditions before the first shot was fired.
+The goal was to see whether the pre-race signals that do exist — qualifying times, Spring Series results, and historical pedigree — carry enough predictive signal to produce meaningful predictions before the flag drops.
 
 ---
 
-## Data Source
+## Data Sources
 
-**CDB90 Battle Database** — originally compiled by the U.S. Army Concepts Analysis Agency (1990), cleaned and packaged by [jrnold/CDB90](https://github.com/jrnold/CDB90).
+All data was scraped and compiled manually from public sources.
 
-Features include army strengths, casualties, commanders, tactical schemes, terrain, weather, front widths, and battle duration across 660 engagements.
+| Source | Data |
+|--------|------|
+| Indiana Daily Student | 2026 qualifying results, ITT rankings, Miss N Out results, Team Pursuit results |
+| IDS historical guides | Team-level historical averages, win counts, races qualified |
+| Wikipedia | Full men's winner list (1951–2025), women's winner list (1988–2025) |
+| IDS race recaps (2015–2025) | Confirmed top-5 finish positions by year |
+
+No official IUSF data files were used. The IUSF Excel records on their results page return 403 errors for direct access.
 
 ---
 
-## Feature Definitions
+## Features
 
-### Raw CDB90 Fields
+### 2026 Spring Series (confirmed from IDS reporting)
 
 | Feature | Description |
 |---------|-------------|
-| `str` | Initial troop strength at the start of the engagement, in number of personnel |
-| `cas` | Total casualties sustained — killed, wounded, captured, and missing |
-| `finst` | Final strength at the end of the engagement after casualties |
-| `ach` | Achievement score (0–10) assigned by CDB90 analysts reflecting how well a side achieved its tactical objectives. 0 = total failure, 5 = stalemate, 10 = complete success. This is the primary outcome metric used throughout the analysis. |
-| `cav` | Number of cavalry units committed |
-| `arty` | Number of artillery pieces committed |
-| `tank` | Number of tanks committed (zero-filled for pre-WWI engagements where tanks did not exist) |
-| `pri1` | Primary tactical scheme code — the main maneuver type employed (e.g. frontal assault, envelopment, defense) |
-| `duration1` | Length of the engagement in days |
-| `wofa / wofd` | Width of front in kilometers for attacker and defender respectively |
-| `terra1` | Primary terrain type code (e.g. open, wooded, urban, mountainous) |
-| `wx1` | Primary weather condition code (e.g. clear, rain, snow, fog) |
+| `qual_pos` | Qualifying grid position (1 = pole) |
+| `qual_time_sec` | Raw four-lap qualifying time in seconds |
+| `qual_time_norm` | Normalized qualifying time (1 = fastest) |
+| `itt_best_rider_rank_imputed` | Best individual rider's ITT rank; confirmed for top ~6 men and top ~10 women, estimated via qual position proxy for the rest |
+| `itt_rank_is_estimated` | Flag: 1 = ITT rank was estimated, 0 = confirmed from IDS |
+| `itt_riders_top40` | Number of team's riders finishing in the ITT top 40 (men only) |
+| `mno_reached_final` | Miss N Out: 1 if team had a rider reach the final |
+| `mno_reached_semis` | Miss N Out: 1 if team had a rider reach the semifinals |
+| `team_pursuit_pos_filled` | Team Pursuit finish position; non-qualifiers filled with 34 |
+| `team_pursuit_time_sec` | Team Pursuit time in seconds; non-qualifiers filled with max + 60s |
+| `spring_series_winner` | 1 if team won the overall Spring Series (white jersey) |
+| `spring_series_score` | Engineered composite: `0.35×qual + 0.25×ITT + 0.25×TP + 0.15×MNO` |
 
-### Engineered Features
+### Historical Pedigree
 
-| Feature | Formula | Description |
-|---------|---------|-------------|
-| `force_ratio` | `att_str / def_str` | Ratio of attacker to defender strength at battle start. Values above 1.0 mean the attacker had more troops. Used to determine whether a general fought as an underdog. |
-| `att_loss_pct` | `att_cas / att_str` | Fraction of the attacker's initial force lost as casualties. Clipped at the 99th percentile to handle data quality issues where reported casualties exceeded reported strength. |
-| `def_loss_pct` | `def_cas / def_str` | Same as above for the defender. |
-| `exchange_ratio` | `att_cas / def_cas` | Ratio of attacker casualties to defender casualties. Values below 1.0 mean the attacker inflicted more casualties than they suffered. Clipped at the 99th percentile. |
-| `casualty_intensity` | `(att_cas + def_cas) / (att_str + def_str)` | Total casualties as a fraction of total troops engaged. The primary measure of how bloody a battle was regardless of who won. A value of 0.20 means 20% of all troops on both sides became casualties. |
-| `total_troops` | `att_str + def_str` | Combined troop count for both sides. Used as a proxy for battle scale. |
-| `attacker_underdog` | `1 if force_ratio < 0.80 else 0` | Binary flag indicating the attacker had fewer than 80% of the defender's troop strength. Used to measure how often a general chose to engage at a numerical disadvantage. |
-| `ach_diff` | `att_ach - def_ach` | Difference in achievement scores between attacker and defender. Positive values indicate attacker dominance. Used to assess decisiveness of outcome beyond a binary win/loss. |
-
-### Metric Definitions Used in Analysis
-
-**Win Rate** — percentage of battles where a general's side recorded an achievement score of 6 or higher out of 10. A score of 6 represents a clear tactical success; scores of 5 and below represent stalemates or failures. This threshold was chosen to distinguish meaningful victories from marginal outcomes.
-
-**Average Achievement Score** — mean `ach` score across all of a general's battles (0–10 scale). Captures not just whether a general won, but how decisively. A general who wins 10-0 every time scores higher than one who wins 6-5 every time.
-
-**Casualty Intensity** — mean `casualty_intensity` across a general's battles. Reflects the character of warfare a general engaged in — lower values indicate more efficient or mobile battles, higher values indicate grinding attritional combat.
-
-**Underdog Rate** — percentage of battles where `force_ratio < 0.80`, meaning the general's side had fewer than 80% of the enemy's troop strength at the start. A measure of how often a general chose to fight at a numerical disadvantage.
+| Feature | Description |
+|---------|-------------|
+| `hist_races` | Total races with confirmed finish data |
+| `hist_wins` | All-time win count |
+| `hist_win_rate` | Wins / races |
+| `hist_top3_rate` | Top-3 finishes / races |
+| `hist_top5_rate` | Top-5 finishes / races |
+| `hist_avg_finish_all` | Average finish across all confirmed historical races |
+| `hist_avg_finish_5yr` | Average finish over last 5 races |
+| `hist_avg_finish_3yr` | Average finish over last 3 races |
+| `hist_best_finish` | Best-ever confirmed finish |
+| `hist_last_finish` | Most recent confirmed finish |
+| `hist_years_since_last_race` | Years since last confirmed race appearance |
+| `hist_years_since_last_win` | Years since last win (99 if never won) |
+| `hist_consecutive_top5` | Current streak of consecutive top-5 finishes |
+| `hist_trend_3yr` | Performance slope over last 3 years (positive = improving) |
+| `hist_is_first_year` | 1 if team has no prior confirmed finish data |
+| `defending_champ` | 1 if team won the previous year's race |
+| `team_type_enc` | Encoded team affiliation: frat/sorority/independent/hall/org |
 
 ---
 
-## Pipeline
+## Model
+
+Two models run in parallel for each race, combined into an ensemble.
+
+**Model A — XGBRegressor**  
+Target: rank of `spring_series_score` (ordinal proxy for predicted finish order)  
+Output: continuous score, rank-ordered into predicted finish position
+
+**Model B — XGBClassifier**  
+Target: binary top-5 flag derived from `hist_avg_finish_5yr <= 4.5`  
+Output: top-5 probability per team
+
+**Ensemble**  
+Final rank = average of regressor rank and classifier rank, re-ranked.
+
+**Cross-validation:** Leave-One-Out (LOO), the appropriate choice at n=33.
+
+### Key parameters
+
+```python
+XGBRegressor(
+    n_estimators=150, max_depth=3, learning_rate=0.05,
+    subsample=0.8, colsample_bytree=0.7,
+    min_child_weight=3, reg_alpha=0.5, reg_lambda=2.0
+)
+
+XGBClassifier(
+    n_estimators=150, max_depth=2, learning_rate=0.05,
+    subsample=0.8, colsample_bytree=0.7,
+    min_child_weight=3, reg_alpha=0.5, reg_lambda=2.0
+)
+```
+
+---
+
+## Predictions
+
+### Men's Race (April 25)
+
+| Predicted Finish | Team | Top-5 Prob |
+|-----------------|------|-----------|
+| 1 | Cutters | 78% |
+| 2 | Sigma Alpha Epsilon | 78% |
+| 3 | Black Key Bulls | 78% |
+| 4 | Phi Gamma Delta | 78% |
+| 5 | Sigma Phi Epsilon | 78% |
+| 6 | Sigma Nu | 78% |
+| 7 | Cinzano | 78% |
+
+Cutters qualified on pole, swept the entire 2026 Spring Series, and carry a historical average finish of 1.46 across 26 races. The model is not subtle about this one.
+
+### Women's Race (April 24)
+
+| Predicted Finish | Team | Top-5 Prob |
+|-----------------|------|-----------|
+| 1 | Teter | 76% |
+| 2 | Alpha Chi Omega | 76% |
+| 3 | Kappa Alpha Theta ⭐ | 76% |
+| 4 | Delta Gamma | 76% |
+| 5 | Novus | 76% |
+| 6 | Kappa Kappa Gamma | 76% |
+| 7 | Melanzana Cycling | 75% |
+
+⭐ Defending champion. Kappa Alpha Theta qualified first and has 10 all-time wins. The model ranked them third based on Spring Series composite. Bold call.
+
+The tight clustering at the top on both sides reflects the nature of the race — the Little 500 is chaotic by design, and the data backs that up.
+
+---
+
+## Repository Structure
 
 ```
-CDB90/data/
-    battles.csv
-    belligerents.csv
-    battle_durations.csv
-    front_widths.csv
-    terrain.csv
-    weather.csv
+little500-2026/
+│
+├── little500_2026_men_xgb.csv         # Men's XGBoost-ready feature set (30 features)
+├── little500_2026_women_xgb.csv       # Women's XGBoost-ready feature set (29 features)
+│
+├── little500_2026_men_full.csv        # Men's full dataset (all intermediate columns)
+├── little500_2026_women_full.csv      # Women's full dataset
+│
+├── little500_men_history_raw.csv      # Men's historical results by year and team (1984–2025)
+├── little500_women_history_raw.csv    # Women's historical results by year and team (1988–2025)
+├── little500_men_team_stats.csv       # Aggregated historical stats per men's team
+├── little500_women_team_stats.csv     # Aggregated historical stats per women's team
+│
+├── little500_2026_xgboost.ipynb       # Full modeling pipeline
+└── README.md
 ```
 
-**1. Data Loading & Joining** (`load_cdb90.py`)
-Loads all CDB90 tables and pivots belligerents into attacker/defender columns, joining on `isqno`.
-
-**2. Feature Engineering** (`battledata.py`)
-Constructs all engineered features listed above. Applies 99th percentile clipping to ratio-based features to handle records where reported casualties exceeded reported strength. Log transforms applied to `att_str`, `def_str`, `att_cas`, `def_cas`, `total_troops`, `exchange_ratio`, `force_ratio`, and `duration1` to reduce right skew before clustering. Tanks imputed to zero for all pre-WWI battles.
-
-**3. Clustering** (`battleclusters.py`)
-- StandardScaler normalization across all features
-- PCA reduction to 10 components
-- K-Means (k=8) — chosen via silhouette scoring
-- HDBSCAN for density-based comparison
-- UMAP 2D projection for visualization
-
-**4. General Comparison** (`napoleon_stats.py`)
-Filters belligerents by commander name, joins cluster labels and engineered features, computes win rate, avg achievement score, casualty intensity, and underdog rate per general.
-
-**5. Monte Carlo Simulation** (`headtohead_montecarlo.py`)
-For each matchup, samples 100,000 achievement scores from each general's empirical distribution and counts wins. Results broken out by shared cluster type. When two generals share no cluster types, the simulation runs on full career distributions.
-
-**6. Dashboard** (`index.html`)
-Standalone HTML/CSS/JS dashboard. No dependencies. Animated bars, tabbed metric comparison, cluster cards, and head-to-head matchup visualization.
-
 ---
 
-## Cluster Archetypes
-
-| # | Name | Median Intensity | Typical Outcome | Description |
-|---|------|-----------------|-----------------|-------------|
-| 0 | Large-Scale Attritional | 0.119 | Attacker wins narrowly | Long engagements between large forces, moderate casualties, grinding rather than decisive |
-| 1 | High-Intensity Defensive | 0.219 | Defender wins decisively | Fortified positions, river crossings, failed offensives — defender holds and inflicts heavy losses |
-| 2 | Decisive Pursuit | 0.074 | Attacker wins cleanly | Mobile operations, exploitation, flanking — attacker has size advantage and wins with low casualties |
-| 3 | Small-Scale Engagement | 0.043 | Slight attacker edge | Colonial skirmishes, rearguard actions, minor engagements with minimal casualties on both sides |
-| 4 | High-Intensity Offensive | 0.295 | Attacker annihilates | Short, brutal, decisive — attacker crushes defender in under two days with heavy losses on both sides |
-| 5 | Massive Set-Piece | 0.223 | Near-even outcome | The great clashes of history — Borodino, Waterloo, Gettysburg — massive armies, both sides committed fully |
-| 6 | Failed Assault | 0.049 | Defender wins | Attacker probes with size advantage, finds strong resistance, withdraws with minimal casualties |
-| 7 | Operational-Scale Annihilation | 0.326 | Attacker wins decisively | WWI/WWII army-group engagements — Kursk, Brusilov, Moscow — industrial-scale casualties, attacker breaks through |
-
----
-
-## Key Findings
-
-**Napoleon (25 battles, 80% win rate)**
-Dominated Large-Scale Attritional battles (83% win rate, 12 battles). Only fought outnumbered 12% of the time — lowest in the dataset. His genius was manufacturing favorable conditions, not overcoming impossible odds.
-
-**Wellington (6 battles, 100% win rate)**
-Never lost. Fought outnumbered 33% of the time. Kept casualty intensity low. Monte Carlo simulation gives him a 51.4% edge over Napoleon head-to-head.
-
-**Frederick the Great (14 battles, 78.6% win rate)**
-Highest raw achievement score (7.43) in the dataset. Fought outnumbered 29% of the time. The most underrated profile in the analysis.
-
-**Robert E. Lee (12 battles, 50% win rate)**
-Never fought as an underdog by force ratio. Still only won half his battles. The data is not kind to the mythology.
-
-**Grant (8 battles, 62.5% win rate)**
-Fought outnumbered 37.5% of the time — most of any general analyzed. Still won nearly two-thirds of his battles.
-
----
-
-## Head-to-Head Results (Monte Carlo, 100k simulations)
-
-| Matchup | Winner | Probability |
-|---------|--------|-------------|
-| Napoleon vs Wellington | Wellington | 51.4% – 48.6% |
-| Napoleon vs Lee | Napoleon | 52.7% – 47.3% |
-| Napoleon vs Jackson | Napoleon | 67.0% – 33.0% |
-| Grant vs Lee | Lee | 60.4% – 39.6% |
-
----
-
-## Stack
-
-- Python 3.11
-- pandas, numpy, scikit-learn
-- umap-learn, hdbscan
-- matplotlib, seaborn
-
----
-
-## Usage
+## Reproducing
 
 ```bash
-git clone https://github.com/gsuchecki40/napoleon-battle-analytics
-cd napoleon-battle-analytics
-git clone https://github.com/jrnold/CDB90.git
-pip install pandas numpy scikit-learn umap-learn hdbscan matplotlib seaborn
-
-python battledata.py             # build feature matrix
-python battleclusters.py         # run clustering
-python napoleon_stats.py         # general comparison
-python headtohead_montecarlo.py  # simulations
+pip install xgboost shap scikit-learn pandas numpy matplotlib
 ```
 
-Open `index.html` in a browser for the full dashboard.
+Open `little500_2026_xgboost.ipynb`. The two `_xgb.csv` files are the only inputs required. All feature columns are auto-detected from the CSV — anything that isn't `team` or `actual_finish_2026` is treated as a feature.
+
+After the races, fill `actual_finish_2026` in both XGB CSVs and re-run the notebook to evaluate predictions in Section 10.
+
+---
+
+## Limitations
+
+- **n=33 per race.** Small sample. LOO cross-validation is used, but any model trained on 33 observations should be interpreted cautiously.
+- **No mid-race signals.** Exchange strategy, crash events, pack dynamics, and weather are not modeled. These are often decisive.
+- **ITT rank imputation.** Only the top ~6 men's and top ~10 women's ITT finishers were reported by IDS. Remaining riders' ranks are estimated using qualifying position as a proxy.
+- **Historical data gaps.** For teams outside the perennial contenders, confirmed historical finish data is limited. First-year teams receive pessimistic defaults.
+- **Proxy targets.** No labeled 2026 finish data exists pre-race, so the regressor trains on a spring series composite rank and the classifier on a historical top-5 flag. These are reasonable proxies but are not the same as actual race outcomes.
+
+---
+
+## Post-Race
+
+Results and model evaluation will be added after the races conclude April 24–25.
