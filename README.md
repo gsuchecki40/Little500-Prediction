@@ -5,7 +5,6 @@ XGBoost ensemble model predicting finish order and top-5 probability for the 202
 **Races:** Women's — April 24 | Men's — April 25  
 **Track:** Bill Armstrong Stadium, Bloomington, IN  
 **Surface:** Cinder | 410 meter lap
-
 **Format:** 33-team field, relay-style — 200 laps (men) / 100 laps (women)
 
 ---
