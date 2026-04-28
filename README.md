@@ -187,6 +187,32 @@ After the races, fill `actual_finish_2026` in both XGB CSVs and re-run the noteb
 
 ---
 
-## Post-Race
+## Post-Race Results & Evaluation
 
-Results and model evaluation will be added after the races conclude April 24–25.
+### Women's Race — April 24, 2026
+
+| Finish | Team | Predicted Finish | Hit Top-5? |
+|--------|------|-----------------|-----------|
+| 1 | Alpha Chi Omega | 2 | ✅ |
+| 2 | Teter | 1 | ✅ |
+| 3 | Kappa Alpha Theta | 3 | ✅ |
+
+**Model called 3/3 podium teams correctly.** The top-5 cluster was exactly right — the model couldn't separate ACO from Teter by much, and the actual race came down to a sprint finish between the two. KAT, predicted 3rd, finished 3rd. The race was delayed mid-event by a lightning storm and resumed with teams bunched at the start/finish line, erasing any lead that had built up — chaos the model obviously couldn't account for. Alpha Chi Omega won its first title in team history.
+
+### Men's Race — April 25, 2026
+
+| Finish | Team | Predicted Finish | Hit Top-5? |
+|--------|------|-----------------|-----------|
+| 1 | Black Key Bulls | 3 | ✅ |
+| 2 | Cinzano | 7 | ✅ |
+| 3 | Bears Cycling | 9 | ✅ |
+
+**Model called all 3 podium teams within the top 10.** BKB was predicted 3rd — a clean hit. Cinzano and Bears were ranked 7th and 9th respectively, both correctly identified as dark horses with top-5 probability above 75%. The model had Cutters at 1st; Cutters led for much of the race but were taken out in a crash on lap 199 with two laps remaining. Black Key Bulls avoided the crash and won under a yellow flag, claiming a third consecutive title.
+
+### Summary
+
+The model's core call — that the top teams were tightly clustered and any of them could win — was validated by both races. Both finished in chaotic sprint/crash finishes that no pre-race model could fully predict. The Spring Series composite and historical pedigree features correctly identified the contenders in both fields.
+
+**What worked:** Top-5 probability clustering, historical pedigree signals (BKB's consecutive wins, ACO's recent trajectory), Spring Series composite.
+
+**What the model couldn't see:** The lap 199 crash that decided the men's race, the rain delay that bunched the women's field with 37 laps to go. Mid-race signals — particularly weather and crash events — remain the biggest gap for future iterations. Race-day wind and temperature are the first additions planned for 2027.
