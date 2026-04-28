@@ -117,7 +117,7 @@ XGBClassifier(
 |-----------------|------|-----------|
 | 1 | Cutters | 78% |
 | 2 | Sigma Alpha Epsilon | 78% |
-| 3 | Black Key Bulls | 78% |
+| 3 | Black Key Bulls ⭐ | 78% |
 | 4 | Phi Gamma Delta | 78% |
 | 5 | Sigma Phi Epsilon | 78% |
 | 6 | Sigma Nu | 78% |
